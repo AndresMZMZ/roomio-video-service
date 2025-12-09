@@ -9,71 +9,82 @@ const io = new Server({
 
 const port = Number(process.env.PORT || 5003);
 io.listen(port);
-console.log(`🎥 Video signaling server running on port ${port}`);
+console.log(Video signaling server running on port ${ port });
 
-// Config STUN/TURN desde .env
+// STUN/TURN configuration from environment variables
 const iceServers = [
-  { urls: 'stun:stun.l.google.com:19302' }, // STUN 1
-  { urls: 'stun:stun1.l.google.com:19302' }, // STUN 2 (segundo independiente para video)
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
   ...(process.env.TURN_URL ? [{ urls: process.env.TURN_URL, username: process.env.TURN_USER, credential: process.env.TURN_PASS }] : [])
 ];
 
-// Mapa de rooms: roomId -> array de socket IDs (máx 10)
+// Room map: roomId -> array of socket IDs (max 10 per room)
 const rooms: { [roomId: string]: string[] } = {};
 
 io.on("connection", (socket) => {
-  console.log(`🔵 User connected: ${socket.id}`);
+  console.log(User connected: ${ socket.id });
 
-  // Join room
+  // Handle user joining a video room
   socket.on("join-video-room", (roomId: string) => {
     if (!rooms[roomId]) rooms[roomId] = [];
     if (rooms[roomId].length >= 10) {
       socket.emit("roomFull");
-      console.log("❌ Room full:", roomId);
+      console.log("Room full:", roomId);
       return;
     }
+
+    // Step 1: Save existing users before adding the new one
+    const existingUsers = [...rooms[roomId]];
+
+    // Step 2: Add new user to room
     rooms[roomId].push(socket.id);
     socket.join(roomId);
-    socket.emit("ice-config", { iceServers }); // Envía STUN/TURN al client
-    console.log(`👥 Joined room ${roomId}, size: ${rooms[roomId].length}`);
+    socket.emit("ice-config", { iceServers });
+    console.log(Joined room ${ roomId }, size: ${ rooms[roomId].length });
 
-    // Notifica a otros en room
+    // Step 3: Send list of existing users to the new user
+    if (existingUsers.length > 0) {
+      socket.emit("existing-users", { users: existingUsers });
+      console.log(Sent ${ existingUsers.length } existing users to ${ socket.id });
+    }
+
+    // Step 4: Notify other users that someone new joined
     socket.to(roomId).emit("user-joined", { userId: socket.id });
   });
 
-  // Relay video offer
+  // Relay video offer from one peer to another
   socket.on("video-offer", (data: { offer: any; roomId: string; to: string }) => {
     socket.to(data.to).emit("video-offer", { offer: data.offer, from: socket.id });
-    console.log("📡 Video offer relayed");
+    console.log(Video offer relayed: ${ socket.id } -> ${ data.to });
   });
 
-  // Relay video answer
+  // Relay video answer from one peer to another
   socket.on("video-answer", (data: { answer: any; roomId: string; to: string }) => {
     socket.to(data.to).emit("video-answer", { answer: data.answer, from: socket.id });
-    console.log("📡 Video answer relayed");
+    console.log(Video answer relayed: ${ socket.id } -> ${ data.to });
   });
 
-  // Relay ICE candidate
+  // Relay ICE candidate from one peer to another
   socket.on("ice-candidate", (data: { candidate: any; roomId: string; to: string }) => {
     socket.to(data.to).emit("ice-candidate", { candidate: data.candidate, from: socket.id });
-    console.log("🧊 ICE candidate relayed");
+    console.log(ICE candidate relayed: ${ socket.id } -> ${ data.to });
   });
 
-  // Toggle video/mute (extiende de tu actividad)
+  // Handle video toggle state changes
   socket.on("toggle-video", (data: { roomId: string; enabled: boolean }) => {
     socket.to(data.roomId).emit("peer-toggle-video", { peerId: socket.id, enabled: data.enabled });
   });
 
-  // Nueva línea: Renegociación SDP para add/remove video track al toggle (front maneja botones, backend relay).
+  // Handle SDP renegotiation for adding/removing video tracks
   socket.on("video-renegotiate", (data: { roomId: string; sdp: RTCSessionDescriptionInit; to: string }) => {
     socket.to(data.to).emit("video-renegotiate", { sdp: data.sdp, from: socket.id });
-    console.log(`🔄 Video renegotiation in ${data.roomId}: ${socket.id} -> ${data.to}`);
+    console.log(Video renegotiation in ${ data.roomId }: ${ socket.id } -> ${ data.to });
   });
-  // Fin de línea nueva.
 
+  // Handle user disconnection
   socket.on("disconnect", () => {
-    console.log(`🔴 User disconnected: ${socket.id}`);
-    // Limpia de todas las rooms
+    console.log(User disconnected: ${ socket.id });
+    // Clean up from all rooms
     Object.keys(rooms).forEach(roomId => {
       rooms[roomId] = rooms[roomId].filter(id => id !== socket.id);
       if (rooms[roomId].length === 0) delete rooms[roomId];
