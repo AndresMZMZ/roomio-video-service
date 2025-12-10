@@ -14,19 +14,26 @@ const port = Number(process.env.PORT || 5003);
 io.listen(port);
 console.log(`Video signaling server running on port ${port}`);
 
-// STUN/TURN configuration from environment variables
+// STUN/TURN configuration - Fixed URLs with proper prefixes
 const iceServers = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
-  ...(process.env.TURN_URL
-    ? [
-        {
-          urls: process.env.TURN_URL,
-          username: process.env.TURN_USER,
-          credential: process.env.TURN_PASS
-        }
-      ]
-    : [])
+
+  {
+    urls: "turn:a.relay.metered.ca:80",
+    username: "87a4d9d7ddc5f6d9f03c9bb4",
+    credential: "hsjVP/FvkB7hGHhA"
+  },
+  {
+    urls: "turn:a.relay.metered.ca:443",
+    username: "87a4d9d7ddc5f6d9f03c9bb4",
+    credential: "hsjVP/FvkB7hGHhA"
+  },
+  {
+    urls: "turn:a.relay.metered.ca:443?transport=tcp",
+    username: "87a4d9d7ddc5f6d9f03c9bb4",
+    credential: "hsjVP/FvkB7hGHhA"
+  }
 ];
 
 // Room map: roomId -> array of socket IDs (max 10 per room)
@@ -44,22 +51,18 @@ io.on("connection", (socket) => {
       return;
     }
 
-    // Step 1: Save existing users before adding the new one
     const existingUsers = [...rooms[roomId]];
 
-    // Step 2: Add new user to room
     rooms[roomId].push(socket.id);
     socket.join(roomId);
     socket.emit("ice-config", { iceServers });
     console.log(`Joined room ${roomId}, size: ${rooms[roomId].length}`);
 
-    // Step 3: Send list of existing users to the new user
     if (existingUsers.length > 0) {
       socket.emit("existing-users", { users: existingUsers });
       console.log(`Sent ${existingUsers.length} existing users to ${socket.id}`);
     }
 
-    // Step 4: Notify other users that someone new joined
     socket.to(roomId).emit("user-joined", { userId: socket.id });
   });
 
